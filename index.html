@@ -461,6 +461,22 @@ function addMsg(text, type='bot', time=null) {
   return div;
 }
 
+// 会話履歴をデータに保存（直近100件）
+function persistMsg(text, type) {
+  const data = loadData();
+  const month = getMonth(data);
+  if (!month.messages) month.messages = [];
+  month.messages.push({ t: text, y: type, d: new Date().toISOString() });
+  if (month.messages.length > 100) month.messages = month.messages.slice(-100);
+  saveData(data);
+}
+
+// ボット返信：表示＋保存
+function botMsg(html) {
+  addMsg(html);
+  persistMsg(html, 'bot');
+}
+
 function barColor(pct) {
   return pct > 0.5 ? '#44BBA4' : pct > 0.2 ? '#F9DB6D' : '#E9724C';
 }
@@ -522,6 +538,7 @@ function sendMsg() {
   if (!text) return;
   field.value = '';
   addMsg(escapeHtml(text), 'user');
+  persistMsg(escapeHtml(text), 'user');
   processMsg(text);
 }
 
@@ -539,7 +556,7 @@ function processMsg(text) {
   setTimeout(() => {
     if (parsed.type === 'status') {
       const calc = calcRemaining(data);
-      addMsg(`今月の状況です！${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`今月の状況です！${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'expense') {
       month.categories[parsed.category] = (month.categories[parsed.category] || 0) + parsed.amount;
@@ -547,7 +564,7 @@ function processMsg(text) {
       saveData(data);
       const calc = calcRemaining(data);
       updateHeader();
-      addMsg(`✅ <strong>${parsed.category}</strong>に ${fmt(parsed.amount)} を記録しました！${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`✅ <strong>${parsed.category}</strong>に ${fmt(parsed.amount)} を記録しました！${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'food') {
       month.foodSpent = (month.foodSpent || 0) + parsed.amount;
@@ -563,7 +580,7 @@ function processMsg(text) {
       saveData(data);
       const calc = calcRemaining(data);
       updateHeader();
-      addMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${savingNote}${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${savingNote}${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'food_saving') {
       month.foodSavings = (month.foodSavings || 0) + parsed.amount;
@@ -571,7 +588,7 @@ function processMsg(text) {
       saveData(data);
       const calc = calcRemaining(data);
       updateHeader();
-      addMsg(`✅ 食費の節約 ${fmt(parsed.amount)} を娯楽費に加算しました！${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`✅ 食費の節約 ${fmt(parsed.amount)} を娯楽費に加算しました！${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'income') {
       month.extraIncome = (month.extraIncome || 0) + parsed.amount;
@@ -579,7 +596,7 @@ function processMsg(text) {
       saveData(data);
       const calc = calcRemaining(data);
       updateHeader();
-      addMsg(`✅ 臨時収入 ${fmt(parsed.amount)} を追加しました！${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`✅ 臨時収入 ${fmt(parsed.amount)} を追加しました！${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'reset_confirm') {
       addMsg(`本当に今月のデータをリセットしますか？<br><button onclick="clearMonth()" style="background:#E57373;color:white;border:none;border-radius:8px;padding:6px 16px;margin-top:8px;font-size:14px;cursor:pointer">リセットする</button>`);
@@ -674,13 +691,33 @@ function clearMonth() {
 // ─────────────────────────────────────────
 window.onload = () => {
   const data = loadData();
-  getMonth(data);
+  const month = getMonth(data);
   saveData(data);
   updateHeader();
 
-  const calc = calcRemaining(data);
-  const month = getMonth(data);
-  addMsg(`こんにちは！💰<br>娯楽費と食費、2本立てで管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
+  // 保存済みの会話履歴を復元
+  const history = month.messages || [];
+  if (history.length > 0) {
+    let lastDate = '';
+    for (const m of history) {
+      const dt = new Date(m.d);
+      const dateStr = `${dt.getMonth()+1}/${dt.getDate()}`;
+      if (dateStr !== lastDate) {
+        const div = document.createElement('div');
+        div.className = 'date-divider';
+        div.textContent = dateStr;
+        document.getElementById('chatArea').appendChild(div);
+        lastDate = dateStr;
+      }
+      const time = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      addMsg(m.t, m.y, time);
+    }
+    const calc = calcRemaining(data);
+    addMsg(`おかえりなさい！💰 続きから記録できます。${makeRemainingCard(calc, month.categories)}`);
+  } else {
+    const calc = calcRemaining(data);
+    addMsg(`こんにちは！💰<br>娯楽費と食費、2本立てで管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
+  }
 };
 </script>
 </body>
