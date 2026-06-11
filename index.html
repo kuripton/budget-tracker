@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="予算トラッカー">
+<title>💰 予算トラッカー</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --primary: #2E86AB;
+    --green: #44BBA4;
+    --orange: #E9724C;
+    --yellow: #F9DB6D;
+    --dark: #1E2D40;
+    --light: #F0F4F8;
+    --white: #FFFFFF;
+    --red: #E57373;
+    --radius: 16px;
+  }
+  body {
+    font-family: 'Hiragino Sans', 'Meiryo', sans-serif;
+    background: #ECEFF1;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ヘッダー */
+  .header {
+    background: var(--dark);
+    color: white;
+    padding: 12px 16px 10px;
+    flex-shrink: 0;
+  }
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .header-title { font-size: 16px; font-weight: bold; }
+  .header-month { font-size: 12px; color: #90CAF9; }
+  .btn-settings {
+    background: none; border: none; color: #90CAF9;
+    font-size: 20px; cursor: pointer; padding: 4px;
+  }
+
+  /* 残額バー（2本立て） */
+  .budget-bar-wrap { background: rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; }
+  .budget-bar-wrap:last-child { margin-bottom: 0; }
+  .budget-bar-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; color: #B0BEC5;
+  }
+  .budget-remaining { font-size: 20px; font-weight: bold; color: var(--yellow); }
+  .budget-remaining.food { font-size: 16px; color: #80DEEA; }
+  .bar-bg { background: rgba(255,255,255,0.2); border-radius: 4px; height: 7px; margin-top: 5px; }
+  .bar-fill { height: 7px; border-radius: 4px; transition: width 0.5s ease; }
+
+  /* チャットエリア */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scroll-behavior: smooth;
+  }
+
+  /* メッセージ */
+  .msg { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; }
+  .msg.user { flex-direction: row-reverse; }
+  .msg-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .msg.bot .msg-avatar { background: var(--primary); }
+  .msg.user .msg-avatar { background: var(--dark); }
+  .msg-bubble {
+    max-width: 75%;
+    padding: 10px 13px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .msg.bot .msg-bubble {
+    background: var(--white);
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .msg.user .msg-bubble {
+    background: var(--primary);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .msg-time { font-size: 10px; color: #90A4AE; margin: 0 4px 2px; }
+
+  /* 残額カード（ボット返答内） */
+  .remaining-card {
+    background: linear-gradient(135deg, var(--dark), #2A4A6B);
+    color: white;
+    border-radius: 12px;
+    padding: 12px;
+    margin-top: 8px;
+  }
+  .remaining-card .amount { font-size: 24px; font-weight: bold; color: var(--yellow); }
+  .remaining-card .amount.food { font-size: 18px; color: #80DEEA; }
+  .remaining-card .label { font-size: 11px; color: #90CAF9; margin-bottom: 2px; }
+  .remaining-mini-bar { background: rgba(255,255,255,0.2); border-radius: 3px; height: 6px; margin-top: 8px; }
+  .remaining-mini-fill { height: 6px; border-radius: 3px; }
+  .card-section { border-top: 1px solid rgba(255,255,255,0.15); margin-top: 10px; padding-top: 10px; }
+  .category-list { margin-top: 8px; font-size: 12px; color: #B0BEC5; list-style: none; }
+  .category-list li { display: flex; justify-content: space-between; padding: 2px 0; }
+
+  /* 入力エリア */
+  .input-area {
+    background: var(--white);
+    border-top: 1px solid #E0E0E0;
+    padding: 10px 12px;
+    flex-shrink: 0;
+  }
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .input-field {
+    flex: 1;
+    background: var(--light);
+    border: none;
+    border-radius: 22px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    -webkit-appearance: none;
+  }
+  .input-field:focus { background: #E3F2FD; }
+  .btn-send {
+    width: 42px; height: 42px;
+    background: var(--primary);
+    border: none; border-radius: 50%;
+    color: white; font-size: 18px;
+    cursor: pointer; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+  }
+  .btn-send:active { background: var(--dark); }
+
+  /* クイックボタン */
+  .quick-btns {
+    display: flex; gap: 6px; margin-bottom: 8px;
+    overflow-x: auto; padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .quick-btn {
+    background: var(--light); border: 1px solid #CFD8DC;
+    border-radius: 16px; padding: 5px 12px;
+    font-size: 12px; white-space: nowrap; cursor: pointer;
+    font-family: inherit; flex-shrink: 0;
+  }
+  .quick-btn:active { background: #E3F2FD; }
+
+  /* 設定モーダル */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5); z-index: 100;
+    align-items: flex-end;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: white; border-radius: 20px 20px 0 0;
+    padding: 20px; width: 100%;
+    max-height: 80vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; color: var(--dark); }
+  .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #F0F0F0; }
+  .setting-label { font-size: 14px; }
+  .setting-input { border: 1px solid #CFD8DC; border-radius: 8px; padding: 6px 10px; font-size: 14px; width: 120px; text-align: right; }
+  .btn-modal-close { width: 100%; padding: 12px; background: var(--dark); color: white; border: none; border-radius: 10px; font-size: 15px; margin-top: 16px; cursor: pointer; font-family: inherit; }
+  .btn-export { width: 100%; padding: 10px; background: var(--light); border: 1px solid #CFD8DC; border-radius: 10px; font-size: 13px; margin-top: 8px; cursor: pointer; font-family: inherit; }
+
+  /* 日付区切り */
+  .date-divider {
+    text-align: center; font-size: 11px; color: #90A4AE;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .date-divider::before, .date-divider::after {
+    content: ''; flex: 1; height: 1px; background: #CFD8DC;
+  }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="header-title">💰 予算トラッカー</div>
+      <div class="header-month" id="headerMonth"></div>
+    </div>
+    <button class="btn-settings" onclick="openSettings()">⚙️</button>
+  </div>
+  <div class="budget-bar-wrap">
+    <div class="budget-bar-label">
+      <span>🎮 娯楽費 残額</span>
+      <span id="entPercent">--%</span>
+    </div>
+    <div class="budget-remaining" id="entRemaining">¥--</div>
+    <div class="bar-bg"><div class="bar-fill" id="entBar"></div></div>
+  </div>
+  <div class="budget-bar-wrap">
+    <div class="budget-bar-label">
+      <span>🍱 食費 残額</span>
+      <span id="foodPercent">--%</span>
+    </div>
+    <div class="budget-remaining food" id="foodRemaining">¥--</div>
+    <div class="bar-bg"><div class="bar-fill" id="foodBar"></div></div>
+  </div>
+</div>
+
+<!-- チャット -->
+<div class="chat-area" id="chatArea"></div>
+
+<!-- 入力 -->
+<div class="input-area">
+  <div class="quick-btns">
+    <button class="quick-btn" onclick="quickInput('残額は？')">💰 残額確認</button>
+    <button class="quick-btn" onclick="quickInput('今日の食費は')">🍱 食費</button>
+    <button class="quick-btn" onclick="quickInput('飲み会で')">🍺 飲み会</button>
+    <button class="quick-btn" onclick="quickInput('交通費で')">🚃 交通費</button>
+    <button class="quick-btn" onclick="quickInput('臨時収入が')">💵 臨時収入</button>
+    <button class="quick-btn" onclick="quickInput('リセット')">🔄 月リセット</button>
+  </div>
+  <div class="input-row">
+    <input class="input-field" id="inputField" type="text"
+      placeholder="「飲み会で3000円」「食費1800円」など"
+      onkeydown="if(event.key==='Enter')sendMsg()">
+    <button class="btn-send" onclick="sendMsg()">➤</button>
+  </div>
+</div>
+
+<!-- 設定モーダル -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeSettings()">
+  <div class="modal">
+    <h2>⚙️ 設定</h2>
+    <div class="setting-row">
+      <span class="setting-label">月の娯楽費予算（円）</span>
+      <input class="setting-input" type="number" id="setBudget">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">月の食費予算（円）</span>
+      <input class="setting-input" type="number" id="setFoodMonthly">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">食費の日割り予算（円）</span>
+      <input class="setting-input" type="number" id="setFoodBudget">
+    </div>
+    <button class="btn-modal-close" onclick="saveSettings()">保存して閉じる</button>
+    <button class="btn-export" onclick="exportData()">📤 データをエクスポート（JSON）</button>
+    <button class="btn-export" onclick="clearMonth()">🗑️ 今月のデータをリセット</button>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// データ管理
+// ─────────────────────────────────────────
+const STORAGE_KEY = 'budget_tracker_v1';
+
+function getMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}_${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function loadData() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  const data = raw ? JSON.parse(raw) : initData();
+  migrate(data);
+  return data;
+}
+
+function initData() {
+  return {
+    settings: { baseBudget: 130000, foodMonthlyBudget: 75000, foodDailyBudget: 2500 },
+    months: {}
+  };
+}
+
+// 旧バージョン（娯楽費1本立て・予算128,000）からの移行
+function migrate(data) {
+  if (data.settings.foodMonthlyBudget === undefined) {
+    data.settings.foodMonthlyBudget = 75000;
+    if (data.settings.baseBudget === 128000) data.settings.baseBudget = 130000;
+  }
+  for (const key of Object.keys(data.months)) {
+    if (data.months[key].foodSpent === undefined) data.months[key].foodSpent = 0;
+  }
+}
+
+function getMonth(data) {
+  const key = getMonthKey();
+  if (!data.months[key]) {
+    data.months[key] = {
+      key,
+      extraIncome: 0,
+      foodSavings: 0,
+      foodSpent: 0,
+      categories: { 交際費: 0, 交通費: 0, '娯楽・趣味': 0, 被服費: 0, '美容・健康': 0, その他: 0 },
+      transactions: [],
+      messages: []
+    };
+  }
+  return data.months[key];
+}
+
+function saveData(data) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function calcRemaining(data) {
+  const m = getMonth(data);
+  const entTotal = data.settings.baseBudget + m.extraIncome + m.foodSavings;
+  const entSpent = Object.values(m.categories).reduce((a,b) => a+b, 0);
+  const foodTotal = data.settings.foodMonthlyBudget;
+  const foodSpent = m.foodSpent || 0;
+  return {
+    ent: { total: entTotal, spent: entSpent, remaining: entTotal - entSpent },
+    food: { total: foodTotal, spent: foodSpent, remaining: foodTotal - foodSpent }
+  };
+}
+
+// ─────────────────────────────────────────
+// 自然言語パーサー
+// ─────────────────────────────────────────
+function parseMessage(text) {
+  // 残額確認
+  if (/残[額高]|残り|いくら|how much/i.test(text)) {
+    return { type: 'status' };
+  }
+  // リセット
+  if (/リセット|reset/i.test(text)) {
+    return { type: 'reset_confirm' };
+  }
+  // 食費（節約表現：「食費が700円浮いた」「食費を500円節約」）
+  const savingMatch = text.match(/食費[がはを]?(\d[\d,]*)[円￥]?\s*(浮い|節約|余っ|余り)/);
+  if (savingMatch) {
+    const amt = parseInt(savingMatch[1].replace(/,/g,''));
+    return { type: 'food_saving', amount: amt, detail: '' };
+  }
+  // 食費の支出（「今日の食費は1800円」「ランチ1200円」「コンビニで600円」）
+  const isFoodWord = /食費|ランチ|昼食|夕食|朝食|朝ご飯|昼ご飯|晩ご飯|朝御飯|昼御飯|晩御飯|夜ご飯|夜御飯|夕飯|晩飯|ご飯|ごはん|外食|コンビニ|スーパー|弁当|カフェ|スタバ|コーヒー|レストラン|ディナー|マック|マクド|ラーメン|うどん|そば|寿司|定食|食堂/.test(text);
+  if (isFoodWord) {
+    const m = text.match(/(\d[\d,]*)[円￥]?/);
+    if (m) {
+      return { type: 'food', amount: parseInt(m[1].replace(/,/g,'')) };
+    }
+  }
+  // 臨時収入
+  const incomeMatch = text.match(/(\d[\d,]*)[円￥]?(もらっ|いただい|臨時|入っ|収入|副収入|ボーナス)/);
+  if (incomeMatch || /臨時収入|副収入/.test(text)) {
+    const m = text.match(/(\d[\d,]*)/);
+    if (m) return { type: 'income', amount: parseInt(m[1].replace(/,/g,'')) };
+  }
+  // 支出
+  const expMatch = text.match(/(\d[\d,\.]*)[円￥ドル]?(?:\s*×\s*\d+)?.{0,8}?(使|払|かかっ|かかり|消費|費|円$)/);
+  if (expMatch) {
+    const amtStr = expMatch[1].replace(/,/g,'');
+    const amount = parseFloat(amtStr);
+    const cat = detectCategory(text);
+    return { type: 'expense', amount: Math.round(amount), category: cat };
+  }
+  // 数字だけ
+  const numOnly = text.match(/^(\d[\d,]*)[円￥]?$/);
+  if (numOnly) {
+    return { type: 'expense', amount: parseInt(numOnly[1].replace(/,/g,'')), category: detectCategory(text) };
+  }
+  return { type: 'unknown' };
+}
+
+function detectCategory(text) {
+  if (/飲み会|居酒屋|会食|飲食|合コン|宴会|パーティ|送別|歓迎|接待/.test(text)) return '交際費';
+  if (/新幹線|電車|バス|タクシー|交通|高速|ガソリン|駐車|飛行機/.test(text)) return '交通費';
+  if (/映画|ライブ|コンサート|ゲーム|漫画|本|書籍|趣味|旅行|観光|アミューズ/.test(text)) return '娯楽・趣味';
+  if (/服|靴|鞄|バッグ|アクセ|被服|ファッション/.test(text)) return '被服費';
+  if (/美容院|散髪|コスメ|スポーツジム|病院|薬|サプリ/.test(text)) return '美容・健康';
+  return 'その他';
+}
+
+// ─────────────────────────────────────────
+// UI
+// ─────────────────────────────────────────
+function fmt(n) { return '¥' + Math.round(n).toLocaleString(); }
+function now() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function addMsg(text, type='bot', time=null) {
+  const area = document.getElementById('chatArea');
+  const t = time || now();
+  const div = document.createElement('div');
+  div.className = `msg ${type}`;
+  const avatar = type === 'bot' ? '🤖' : '👤';
+  if (type === 'bot') {
+    div.innerHTML = `
+      <div class="msg-avatar">${avatar}</div>
+      <div>
+        <div class="msg-bubble">${text}</div>
+        <div class="msg-time">${t}</div>
+      </div>`;
+  } else {
+    div.innerHTML = `
+      <div>
+        <div class="msg-bubble">${text}</div>
+        <div class="msg-time" style="text-align:right">${t}</div>
+      </div>
+      <div class="msg-avatar">${avatar}</div>`;
+  }
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return div;
+}
+
+function barColor(pct) {
+  return pct > 0.5 ? '#44BBA4' : pct > 0.2 ? '#F9DB6D' : '#E9724C';
+}
+
+function makeRemainingCard(calc, categories) {
+  const entPct = Math.max(0, calc.ent.remaining / calc.ent.total);
+  const foodPct = Math.max(0, calc.food.remaining / calc.food.total);
+  const catHtml = Object.entries(categories)
+    .filter(([,v]) => v > 0)
+    .map(([k,v]) => `<li><span>${k}</span><span>-${fmt(v)}</span></li>`).join('');
+  return `
+    <div class="remaining-card">
+      <div class="label">🎮 娯楽費の残額</div>
+      <div class="amount">${fmt(calc.ent.remaining)}</div>
+      <div class="remaining-mini-bar">
+        <div class="remaining-mini-fill" style="width:${Math.round(entPct*100)}%;background:${barColor(entPct)}"></div>
+      </div>
+      <div style="font-size:11px;color:#90CAF9;margin-top:4px">${Math.round(entPct*100)}% 残っています</div>
+      <div class="card-section">
+        <div class="label">🍱 食費の残額（予算 ${fmt(calc.food.total)}）</div>
+        <div class="amount food">${fmt(calc.food.remaining)}</div>
+        <div class="remaining-mini-bar">
+          <div class="remaining-mini-fill" style="width:${Math.round(foodPct*100)}%;background:${barColor(foodPct)}"></div>
+        </div>
+      </div>
+      ${catHtml ? `<ul class="category-list">${catHtml}</ul>` : ''}
+    </div>`;
+}
+
+function updateHeader() {
+  const data = loadData();
+  const calc = calcRemaining(data);
+
+  const entPct = Math.max(0, calc.ent.remaining / calc.ent.total);
+  document.getElementById('entRemaining').textContent = fmt(calc.ent.remaining);
+  document.getElementById('entPercent').textContent = Math.round(entPct*100) + '%';
+  const entBar = document.getElementById('entBar');
+  entBar.style.width = Math.round(entPct*100) + '%';
+  entBar.style.background = barColor(entPct);
+
+  const foodPct = Math.max(0, calc.food.remaining / calc.food.total);
+  document.getElementById('foodRemaining').textContent = fmt(calc.food.remaining);
+  document.getElementById('foodPercent').textContent = Math.round(foodPct*100) + '%';
+  const foodBar = document.getElementById('foodBar');
+  foodBar.style.width = Math.round(foodPct*100) + '%';
+  foodBar.style.background = barColor(foodPct);
+
+  const d = new Date();
+  document.getElementById('headerMonth').textContent =
+    `${d.getFullYear()}年${d.getMonth()+1}月　娯楽 ${fmt(calc.ent.total)}／食費 ${fmt(calc.food.total)}`;
+}
+
+// ─────────────────────────────────────────
+// メッセージ処理
+// ─────────────────────────────────────────
+function sendMsg() {
+  const field = document.getElementById('inputField');
+  const text = field.value.trim();
+  if (!text) return;
+  field.value = '';
+  addMsg(escapeHtml(text), 'user');
+  processMsg(text);
+}
+
+function quickInput(text) {
+  const field = document.getElementById('inputField');
+  field.value = text;
+  field.focus();
+}
+
+function processMsg(text) {
+  const parsed = parseMessage(text);
+  const data = loadData();
+  const month = getMonth(data);
+
+  setTimeout(() => {
+    if (parsed.type === 'status') {
+      const calc = calcRemaining(data);
+      addMsg(`今月の状況です！${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'expense') {
+      month.categories[parsed.category] = (month.categories[parsed.category] || 0) + parsed.amount;
+      month.transactions.push({ date: new Date().toISOString(), type: 'expense', category: parsed.category, amount: parsed.amount, memo: text });
+      saveData(data);
+      const calc = calcRemaining(data);
+      updateHeader();
+      addMsg(`✅ <strong>${parsed.category}</strong>に ${fmt(parsed.amount)} を記録しました！${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'food') {
+      month.foodSpent = (month.foodSpent || 0) + parsed.amount;
+      month.transactions.push({ date: new Date().toISOString(), type: 'food', amount: parsed.amount, memo: text });
+      // 日割り予算より安ければ差額を娯楽費に加算
+      let savingNote = '';
+      const daily = data.settings.foodDailyBudget;
+      if (/今日|本日/.test(text) && parsed.amount < daily) {
+        const diff = daily - parsed.amount;
+        month.foodSavings = (month.foodSavings || 0) + diff;
+        savingNote = `<br><small style="color:#888">日割り¥${daily.toLocaleString()}より安いので、差額 ${fmt(diff)} を娯楽費に加算しました🎉</small>`;
+      }
+      saveData(data);
+      const calc = calcRemaining(data);
+      updateHeader();
+      addMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${savingNote}${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'food_saving') {
+      month.foodSavings = (month.foodSavings || 0) + parsed.amount;
+      month.transactions.push({ date: new Date().toISOString(), type: 'saving', amount: parsed.amount, memo: text });
+      saveData(data);
+      const calc = calcRemaining(data);
+      updateHeader();
+      addMsg(`✅ 食費の節約 ${fmt(parsed.amount)} を娯楽費に加算しました！${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'income') {
+      month.extraIncome = (month.extraIncome || 0) + parsed.amount;
+      month.transactions.push({ date: new Date().toISOString(), type: 'income', amount: parsed.amount, memo: text });
+      saveData(data);
+      const calc = calcRemaining(data);
+      updateHeader();
+      addMsg(`✅ 臨時収入 ${fmt(parsed.amount)} を追加しました！${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'reset_confirm') {
+      addMsg(`本当に今月のデータをリセットしますか？<br><button onclick="clearMonth()" style="background:#E57373;color:white;border:none;border-radius:8px;padding:6px 16px;margin-top:8px;font-size:14px;cursor:pointer">リセットする</button>`);
+
+    } else {
+      // 金額が入っているかもしれない
+      const numMatch = text.match(/(\d[\d,]+)/);
+      if (numMatch) {
+        const amt = parseInt(numMatch[1].replace(/,/g,''));
+        const cat = detectCategory(text);
+        addMsg(`「${escapeHtml(text)}」ですね。<br>${fmt(amt)} を <strong>${cat}</strong> として記録しますか？<br>
+          <button onclick="forceRecord(${amt},'${cat}','${escapeHtml(text).replace(/'/g,"\\'")}');this.parentNode.innerHTML='✅ 記録しました！'" style="background:var(--primary);color:white;border:none;border-radius:8px;padding:6px 16px;margin-top:8px;font-size:14px;cursor:pointer">記録する</button>`);
+      } else {
+        const hints = [
+          '「飲み会で5000円使いました」',
+          '「今日の食費は1800円でした」',
+          '「臨時収入が20000円入りました」',
+          '「残額は？」',
+        ];
+        addMsg(`すみません、うまく読み取れませんでした😅<br>例えばこんな感じで入力してみてください：<br><small style="color:#888">${hints[Math.floor(Math.random()*hints.length)]}</small>`);
+      }
+    }
+  }, 300);
+}
+
+function forceRecord(amount, category, memo) {
+  const data = loadData();
+  const month = getMonth(data);
+  month.categories[category] = (month.categories[category] || 0) + amount;
+  month.transactions.push({ date: new Date().toISOString(), type: 'expense', category, amount, memo });
+  saveData(data);
+  updateHeader();
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─────────────────────────────────────────
+// 設定
+// ─────────────────────────────────────────
+function openSettings() {
+  const data = loadData();
+  document.getElementById('setBudget').value = data.settings.baseBudget;
+  document.getElementById('setFoodMonthly').value = data.settings.foodMonthlyBudget;
+  document.getElementById('setFoodBudget').value = data.settings.foodDailyBudget;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+function closeSettings() { document.getElementById('modalOverlay').classList.remove('open'); }
+function saveSettings() {
+  const data = loadData();
+  data.settings.baseBudget = parseInt(document.getElementById('setBudget').value) || 130000;
+  data.settings.foodMonthlyBudget = parseInt(document.getElementById('setFoodMonthly').value) || 75000;
+  data.settings.foodDailyBudget = parseInt(document.getElementById('setFoodBudget').value) || 2500;
+  saveData(data);
+  updateHeader();
+  closeSettings();
+  addMsg('⚙️ 設定を保存しました！');
+}
+function exportData() {
+  const data = loadData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `budget_export_${getMonthKey()}.json`;
+  a.click();
+}
+function clearMonth() {
+  const data = loadData();
+  const key = getMonthKey();
+  delete data.months[key];
+  saveData(data);
+  updateHeader();
+  closeSettings();
+  addMsg('🔄 今月のデータをリセットしました。');
+}
+
+// ─────────────────────────────────────────
+// 初期化
+// ─────────────────────────────────────────
+window.onload = () => {
+  const data = loadData();
+  getMonth(data);
+  saveData(data);
+  updateHeader();
+
+  const calc = calcRemaining(data);
+  const month = getMonth(data);
+  addMsg(`こんにちは！💰<br>娯楽費と食費、2本立てで管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
+};
+</script>
+</body>
+</html>
