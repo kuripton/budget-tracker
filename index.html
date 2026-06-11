@@ -263,6 +263,18 @@
       <span class="setting-label">食費の日割り予算（円）</span>
       <input class="setting-input" type="number" id="setFoodBudget">
     </div>
+    <div class="setting-row">
+      <span class="setting-label">期間の開始日（給料日）</span>
+      <input class="setting-input" type="number" id="setCycleDay" min="1" max="28">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">今期のみ：娯楽費を上書き</span>
+      <input class="setting-input" type="number" id="setEntOverride" placeholder="空欄＝通常額">
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">今期のみ：食費を上書き</span>
+      <input class="setting-input" type="number" id="setFoodOverride" placeholder="空欄＝通常額">
+    </div>
     <button class="btn-modal-close" onclick="saveSettings()">保存して閉じる</button>
     <button class="btn-export" onclick="exportData()">📤 データをエクスポート（JSON）</button>
     <button class="btn-export" onclick="clearMonth()">🗑️ 今月のデータをリセット</button>
@@ -275,9 +287,25 @@
 // ─────────────────────────────────────────
 const STORAGE_KEY = 'budget_tracker_v1';
 
-function getMonthKey() {
+// 給料日（20日）始まりの期間情報を返す
+function getCycleInfo(data) {
+  const startDay = (data && data.settings.cycleStartDay) || 20;
   const d = new Date();
-  return `${d.getFullYear()}_${String(d.getMonth()+1).padStart(2,'0')}`;
+  let y = d.getFullYear(), m = d.getMonth();
+  if (d.getDate() < startDay) { m--; if (m < 0) { m = 11; y--; } }
+  const start = new Date(y, m, startDay);
+  const end = new Date(y, m + 1, startDay - 1);
+  const next = new Date(y, m + 1, startDay);
+  const daysLeft = Math.max(1, Math.ceil((next - d) / 86400000));
+  return {
+    key: `${y}_${String(m+1).padStart(2,'0')}_${startDay}`,
+    start, end, daysLeft,
+    label: `${start.getMonth()+1}/${start.getDate()}〜${end.getMonth()+1}/${end.getDate()}`
+  };
+}
+
+function getMonthKey(data) {
+  return getCycleInfo(data).key;
 }
 
 function loadData() {
@@ -289,30 +317,33 @@ function loadData() {
 
 function initData() {
   return {
-    settings: { baseBudget: 130000, foodMonthlyBudget: 75000, foodDailyBudget: 2500 },
+    settings: { baseBudget: 130000, foodMonthlyBudget: 75000, foodDailyBudget: 2500, cycleStartDay: 20 },
     months: {}
   };
 }
 
-// 旧バージョン（娯楽費1本立て・予算128,000）からの移行
+// 旧バージョンからの移行
 function migrate(data) {
   if (data.settings.foodMonthlyBudget === undefined) {
     data.settings.foodMonthlyBudget = 75000;
     if (data.settings.baseBudget === 128000) data.settings.baseBudget = 130000;
   }
+  if (data.settings.cycleStartDay === undefined) data.settings.cycleStartDay = 20;
   for (const key of Object.keys(data.months)) {
     if (data.months[key].foodSpent === undefined) data.months[key].foodSpent = 0;
   }
 }
 
 function getMonth(data) {
-  const key = getMonthKey();
+  const key = getMonthKey(data);
   if (!data.months[key]) {
     data.months[key] = {
       key,
       extraIncome: 0,
       foodSavings: 0,
       foodSpent: 0,
+      entOverride: null,
+      foodOverride: null,
       categories: { 交際費: 0, 交通費: 0, '娯楽・趣味': 0, 被服費: 0, '美容・健康': 0, その他: 0 },
       transactions: [],
       messages: []
@@ -327,9 +358,10 @@ function saveData(data) {
 
 function calcRemaining(data) {
   const m = getMonth(data);
-  const entTotal = data.settings.baseBudget + m.extraIncome + m.foodSavings;
+  const entBase = (m.entOverride != null) ? m.entOverride : data.settings.baseBudget;
+  const entTotal = entBase + m.extraIncome + m.foodSavings;
   const entSpent = Object.values(m.categories).reduce((a,b) => a+b, 0);
-  const foodTotal = data.settings.foodMonthlyBudget;
+  const foodTotal = (m.foodOverride != null) ? m.foodOverride : data.settings.foodMonthlyBudget;
   const foodSpent = m.foodSpent || 0;
   return {
     ent: { total: entTotal, spent: entSpent, remaining: entTotal - entSpent },
@@ -476,9 +508,9 @@ function updateHeader() {
   foodBar.style.width = Math.round(foodPct*100) + '%';
   foodBar.style.background = barColor(foodPct);
 
-  const d = new Date();
+  const cycle = getCycleInfo(data);
   document.getElementById('headerMonth').textContent =
-    `${d.getFullYear()}年${d.getMonth()+1}月　娯楽 ${fmt(calc.ent.total)}／食費 ${fmt(calc.food.total)}`;
+    `${cycle.label}（残り${cycle.daysLeft}日）　娯楽 ${fmt(calc.ent.total)}／食費 ${fmt(calc.food.total)}`;
 }
 
 // ─────────────────────────────────────────
@@ -591,9 +623,13 @@ function escapeHtml(s) {
 // ─────────────────────────────────────────
 function openSettings() {
   const data = loadData();
+  const month = getMonth(data);
   document.getElementById('setBudget').value = data.settings.baseBudget;
   document.getElementById('setFoodMonthly').value = data.settings.foodMonthlyBudget;
   document.getElementById('setFoodBudget').value = data.settings.foodDailyBudget;
+  document.getElementById('setCycleDay').value = data.settings.cycleStartDay;
+  document.getElementById('setEntOverride').value = (month.entOverride != null) ? month.entOverride : '';
+  document.getElementById('setFoodOverride').value = (month.foodOverride != null) ? month.foodOverride : '';
   document.getElementById('modalOverlay').classList.add('open');
 }
 function closeSettings() { document.getElementById('modalOverlay').classList.remove('open'); }
@@ -602,6 +638,14 @@ function saveSettings() {
   data.settings.baseBudget = parseInt(document.getElementById('setBudget').value) || 130000;
   data.settings.foodMonthlyBudget = parseInt(document.getElementById('setFoodMonthly').value) || 75000;
   data.settings.foodDailyBudget = parseInt(document.getElementById('setFoodBudget').value) || 2500;
+  const day = parseInt(document.getElementById('setCycleDay').value);
+  data.settings.cycleStartDay = (day >= 1 && day <= 28) ? day : 20;
+  // 開始日変更で期間キーが変わる可能性があるため、上書きは設定後の今期に適用
+  const month = getMonth(data);
+  const entOv = document.getElementById('setEntOverride').value;
+  const foodOv = document.getElementById('setFoodOverride').value;
+  month.entOverride = (entOv !== '' && !isNaN(parseInt(entOv))) ? parseInt(entOv) : null;
+  month.foodOverride = (foodOv !== '' && !isNaN(parseInt(foodOv))) ? parseInt(foodOv) : null;
   saveData(data);
   updateHeader();
   closeSettings();
@@ -612,12 +656,12 @@ function exportData() {
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `budget_export_${getMonthKey()}.json`;
+  a.download = `budget_export_${getMonthKey(data)}.json`;
   a.click();
 }
 function clearMonth() {
   const data = loadData();
-  const key = getMonthKey();
+  const key = getMonthKey(data);
   delete data.months[key];
   saveData(data);
   updateHeader();
