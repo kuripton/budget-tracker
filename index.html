@@ -218,7 +218,7 @@
   </div>
   <div class="budget-bar-wrap">
     <div class="budget-bar-label">
-      <span>🍱 食費 残額</span>
+      <span>🍱 今日の食費 残額</span>
       <span id="foodPercent">--%</span>
     </div>
     <div class="budget-remaining food" id="foodRemaining">¥--</div>
@@ -256,11 +256,7 @@
       <input class="setting-input" type="number" id="setBudget">
     </div>
     <div class="setting-row">
-      <span class="setting-label">月の食費予算（円）</span>
-      <input class="setting-input" type="number" id="setFoodMonthly">
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">食費の日割り予算（円）</span>
+      <span class="setting-label">食費の1日予算（円）</span>
       <input class="setting-input" type="number" id="setFoodBudget">
     </div>
     <div class="setting-row">
@@ -270,10 +266,6 @@
     <div class="setting-row">
       <span class="setting-label">今期のみ：娯楽費を上書き</span>
       <input class="setting-input" type="number" id="setEntOverride" placeholder="空欄＝通常額">
-    </div>
-    <div class="setting-row">
-      <span class="setting-label">今期のみ：食費を上書き</span>
-      <input class="setting-input" type="number" id="setFoodOverride" placeholder="空欄＝通常額">
     </div>
     <button class="btn-modal-close" onclick="saveSettings()">保存して閉じる</button>
     <button class="btn-export" onclick="exportData()">📤 データをエクスポート（JSON）</button>
@@ -308,6 +300,12 @@ function getMonthKey(data) {
   return getCycleInfo(data).key;
 }
 
+// 今日の日付キー（YYYY-MM-DD、ローカル時刻）
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function loadData() {
   const raw = localStorage.getItem(STORAGE_KEY);
   const data = raw ? JSON.parse(raw) : initData();
@@ -330,7 +328,10 @@ function migrate(data) {
   }
   if (data.settings.cycleStartDay === undefined) data.settings.cycleStartDay = 20;
   for (const key of Object.keys(data.months)) {
-    if (data.months[key].foodSpent === undefined) data.months[key].foodSpent = 0;
+    const mo = data.months[key];
+    if (mo.foodSpent === undefined) mo.foodSpent = 0;
+    if (mo.foodByDay === undefined) mo.foodByDay = {};       // 日別食費（毎日リセット）
+    if (mo.foodFinalized === undefined) mo.foodFinalized = {}; // 節約分を娯楽費に確定済みの日
   }
 }
 
@@ -342,6 +343,8 @@ function getMonth(data) {
       extraIncome: 0,
       foodSavings: 0,
       foodSpent: 0,
+      foodByDay: {},
+      foodFinalized: {},
       entOverride: null,
       foodOverride: null,
       categories: { 交際費: 0, 交通費: 0, '娯楽・趣味': 0, 被服費: 0, '美容・健康': 0, その他: 0 },
@@ -361,12 +364,34 @@ function calcRemaining(data) {
   const entBase = (m.entOverride != null) ? m.entOverride : data.settings.baseBudget;
   const entTotal = entBase + m.extraIncome + m.foodSavings;
   const entSpent = Object.values(m.categories).reduce((a,b) => a+b, 0);
-  const foodTotal = (m.foodOverride != null) ? m.foodOverride : data.settings.foodMonthlyBudget;
-  const foodSpent = m.foodSpent || 0;
+  // 食費は1日ごとにリセット（今日の残額を表示）
+  const daily = data.settings.foodDailyBudget;
+  const byDay = m.foodByDay || {};
+  const todaySpent = byDay[todayKey()] || 0;
+  const monthTotal = (m.foodSpent || 0) + Object.values(byDay).reduce((a,b) => a+b, 0);
   return {
     ent: { total: entTotal, spent: entSpent, remaining: entTotal - entSpent },
-    food: { total: foodTotal, spent: foodSpent, remaining: foodTotal - foodSpent }
+    food: { total: daily, spent: todaySpent, remaining: daily - todaySpent, monthTotal }
   };
+}
+
+// 日付が変わった過去の日について、節約分（¥2,500未満で済んだ差額）を娯楽費に確定する
+function finalizeFoodSavings(data) {
+  const m = getMonth(data);
+  const daily = data.settings.foodDailyBudget;
+  const tk = todayKey();
+  if (!m.foodByDay) m.foodByDay = {};
+  if (!m.foodFinalized) m.foodFinalized = {};
+  let added = 0, days = 0;
+  for (const day of Object.keys(m.foodByDay)) {
+    if (day < tk && !m.foodFinalized[day]) {
+      const saving = Math.max(0, daily - m.foodByDay[day]);
+      m.foodSavings = (m.foodSavings || 0) + saving;
+      m.foodFinalized[day] = true;
+      if (saving > 0) { added += saving; days++; }
+    }
+  }
+  return { added, days };
 }
 
 // ─────────────────────────────────────────
@@ -496,11 +521,12 @@ function makeRemainingCard(calc, categories) {
       </div>
       <div style="font-size:11px;color:#90CAF9;margin-top:4px">${Math.round(entPct*100)}% 残っています</div>
       <div class="card-section">
-        <div class="label">🍱 食費の残額（予算 ${fmt(calc.food.total)}）</div>
+        <div class="label">🍱 今日の食費 残額（1日 ${fmt(calc.food.total)}）</div>
         <div class="amount food">${fmt(calc.food.remaining)}</div>
         <div class="remaining-mini-bar">
           <div class="remaining-mini-fill" style="width:${Math.round(foodPct*100)}%;background:${barColor(foodPct)}"></div>
         </div>
+        <div style="font-size:11px;color:#90CAF9;margin-top:4px">今月の食費合計 ${fmt(calc.food.monthTotal)}</div>
       </div>
       ${catHtml ? `<ul class="category-list">${catHtml}</ul>` : ''}
     </div>`;
@@ -526,7 +552,7 @@ function updateHeader() {
 
   const cycle = getCycleInfo(data);
   document.getElementById('headerMonth').textContent =
-    `${cycle.label}（残り${cycle.daysLeft}日）　娯楽 ${fmt(calc.ent.total)}／食費 ${fmt(calc.food.total)}`;
+    `${cycle.label}（残り${cycle.daysLeft}日）　娯楽 ${fmt(calc.ent.total)}／食費 ${fmt(calc.food.total)}/日`;
 }
 
 // ─────────────────────────────────────────
@@ -567,20 +593,17 @@ function processMsg(text) {
       botMsg(`✅ <strong>${parsed.category}</strong>に ${fmt(parsed.amount)} を記録しました！${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'food') {
-      month.foodSpent = (month.foodSpent || 0) + parsed.amount;
+      const tk = todayKey();
+      if (!month.foodByDay) month.foodByDay = {};
+      month.foodByDay[tk] = (month.foodByDay[tk] || 0) + parsed.amount;
       month.transactions.push({ date: new Date().toISOString(), type: 'food', amount: parsed.amount, memo: text });
-      // 日割り予算より安ければ差額を娯楽費に加算
-      let savingNote = '';
-      const daily = data.settings.foodDailyBudget;
-      if (/今日|本日/.test(text) && parsed.amount < daily) {
-        const diff = daily - parsed.amount;
-        month.foodSavings = (month.foodSavings || 0) + diff;
-        savingNote = `<br><small style="color:#888">日割り¥${daily.toLocaleString()}より安いので、差額 ${fmt(diff)} を娯楽費に加算しました🎉</small>`;
-      }
       saveData(data);
       const calc = calcRemaining(data);
       updateHeader();
-      botMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${savingNote}${makeRemainingCard(calc, month.categories)}`);
+      const overNote = calc.food.remaining < 0
+        ? `<br><small style="color:#E9724C">今日の予算を ${fmt(-calc.food.remaining)} オーバーしています</small>`
+        : `<br><small style="color:#888">今日はあと ${fmt(calc.food.remaining)} 使えます</small>`;
+      botMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${overNote}${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'food_saving') {
       month.foodSavings = (month.foodSavings || 0) + parsed.amount;
@@ -642,27 +665,22 @@ function openSettings() {
   const data = loadData();
   const month = getMonth(data);
   document.getElementById('setBudget').value = data.settings.baseBudget;
-  document.getElementById('setFoodMonthly').value = data.settings.foodMonthlyBudget;
   document.getElementById('setFoodBudget').value = data.settings.foodDailyBudget;
   document.getElementById('setCycleDay').value = data.settings.cycleStartDay;
   document.getElementById('setEntOverride').value = (month.entOverride != null) ? month.entOverride : '';
-  document.getElementById('setFoodOverride').value = (month.foodOverride != null) ? month.foodOverride : '';
   document.getElementById('modalOverlay').classList.add('open');
 }
 function closeSettings() { document.getElementById('modalOverlay').classList.remove('open'); }
 function saveSettings() {
   const data = loadData();
   data.settings.baseBudget = parseInt(document.getElementById('setBudget').value) || 130000;
-  data.settings.foodMonthlyBudget = parseInt(document.getElementById('setFoodMonthly').value) || 75000;
   data.settings.foodDailyBudget = parseInt(document.getElementById('setFoodBudget').value) || 2500;
   const day = parseInt(document.getElementById('setCycleDay').value);
   data.settings.cycleStartDay = (day >= 1 && day <= 28) ? day : 20;
   // 開始日変更で期間キーが変わる可能性があるため、上書きは設定後の今期に適用
   const month = getMonth(data);
   const entOv = document.getElementById('setEntOverride').value;
-  const foodOv = document.getElementById('setFoodOverride').value;
   month.entOverride = (entOv !== '' && !isNaN(parseInt(entOv))) ? parseInt(entOv) : null;
-  month.foodOverride = (foodOv !== '' && !isNaN(parseInt(foodOv))) ? parseInt(foodOv) : null;
   saveData(data);
   updateHeader();
   closeSettings();
@@ -692,6 +710,8 @@ function clearMonth() {
 window.onload = () => {
   const data = loadData();
   const month = getMonth(data);
+  // 前日までの食費節約分を娯楽費に確定
+  const fin = finalizeFoodSavings(data);
   saveData(data);
   updateHeader();
 
@@ -712,11 +732,14 @@ window.onload = () => {
       const time = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
       addMsg(m.t, m.y, time);
     }
+    const finNote = fin.added > 0
+      ? `<br><small style="color:#888">前日までの食費の節約分 ${fmt(fin.added)} を娯楽費に加算しました🎉</small>`
+      : '';
     const calc = calcRemaining(data);
-    addMsg(`おかえりなさい！💰 続きから記録できます。${makeRemainingCard(calc, month.categories)}`);
+    addMsg(`おかえりなさい！💰 続きから記録できます。${finNote}${makeRemainingCard(calc, month.categories)}`);
   } else {
     const calc = calcRemaining(data);
-    addMsg(`こんにちは！💰<br>娯楽費と食費、2本立てで管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
+    addMsg(`こんにちは！💰<br>娯楽費（期間）と食費（1日¥${data.settings.foodDailyBudget.toLocaleString()}・毎日リセット）で管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
   }
 };
 </script>
