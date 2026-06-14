@@ -375,23 +375,25 @@ function calcRemaining(data) {
   };
 }
 
-// 日付が変わった過去の日について、節約分（¥2,500未満で済んだ差額）を娯楽費に確定する
+// 日付が変わった過去の日について、その日の食費の過不足を娯楽費に確定する
+// （¥2,500未満で済めば差額を娯楽費に加算、超過すればその分を娯楽費から減算）
 function finalizeFoodSavings(data) {
   const m = getMonth(data);
   const daily = data.settings.foodDailyBudget;
   const tk = todayKey();
   if (!m.foodByDay) m.foodByDay = {};
   if (!m.foodFinalized) m.foodFinalized = {};
-  let added = 0, days = 0;
+  let net = 0, days = 0;
   for (const day of Object.keys(m.foodByDay)) {
     if (day < tk && !m.foodFinalized[day]) {
-      const saving = Math.max(0, daily - m.foodByDay[day]);
-      m.foodSavings = (m.foodSavings || 0) + saving;
+      const diff = daily - m.foodByDay[day]; // プラス＝節約、マイナス＝超過
+      m.foodSavings = (m.foodSavings || 0) + diff;
       m.foodFinalized[day] = true;
-      if (saving > 0) { added += saving; days++; }
+      net += diff;
+      days++;
     }
   }
-  return { added, days };
+  return { net, days };
 }
 
 // ─────────────────────────────────────────
@@ -732,9 +734,12 @@ window.onload = () => {
       const time = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
       addMsg(m.t, m.y, time);
     }
-    const finNote = fin.added > 0
-      ? `<br><small style="color:#888">前日までの食費の節約分 ${fmt(fin.added)} を娯楽費に加算しました🎉</small>`
-      : '';
+    let finNote = '';
+    if (fin.net > 0) {
+      finNote = `<br><small style="color:#888">前日までの食費の節約分 ${fmt(fin.net)} を娯楽費に加算しました🎉</small>`;
+    } else if (fin.net < 0) {
+      finNote = `<br><small style="color:#E9724C">前日までの食費の超過分 ${fmt(-fin.net)} を娯楽費から差し引きました</small>`;
+    }
     const calc = calcRemaining(data);
     addMsg(`おかえりなさい！💰 続きから記録できます。${finNote}${makeRemainingCard(calc, month.categories)}`);
   } else {
