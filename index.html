@@ -282,18 +282,34 @@
 // ─────────────────────────────────────────
 const STORAGE_KEY = 'budget_tracker_v1';
 
-// 給料日（20日）始まりの期間情報を返す
+// 給料日が土日なら直前の金曜に前倒し（日本の給与支給慣行）
+function adjustedPayday(year, month, nominalDay) {
+  const d = new Date(year, month, nominalDay);
+  const dow = d.getDay();                            // 0=日, 6=土
+  if (dow === 6) d.setDate(d.getDate() - 1);         // 土 → 金
+  else if (dow === 0) d.setDate(d.getDate() - 2);    // 日 → 金
+  return d;
+}
+
+// 給料日（既定20日／土日は前倒し）始まりの期間情報を返す
 function getCycleInfo(data) {
-  const startDay = (data && data.settings.cycleStartDay) || 20;
-  const d = new Date();
-  let y = d.getFullYear(), m = d.getMonth();
-  if (d.getDate() < startDay) { m--; if (m < 0) { m = 11; y--; } }
-  const start = new Date(y, m, startDay);
-  const end = new Date(y, m + 1, startDay - 1);
-  const next = new Date(y, m + 1, startDay);
-  const daysLeft = Math.max(1, Math.ceil((next - d) / 86400000));
+  const nominalDay = (data && data.settings.cycleStartDay) || 20;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 時刻を切り落とす
+  const y = today.getFullYear(), m = today.getMonth();
+  const thisStart = adjustedPayday(y, m, nominalDay);
+  let start, next;
+  if (today >= thisStart) {            // 今月の給料日以降 → 今月始まりの期間
+    start = thisStart;
+    next = adjustedPayday(y, m + 1, nominalDay);
+  } else {                             // 今月の給料日より前 → 先月始まりの期間
+    start = adjustedPayday(y, m - 1, nominalDay);
+    next = thisStart;
+  }
+  const end = new Date(next); end.setDate(end.getDate() - 1); // 次の給料日の前日が〆
+  const daysLeft = Math.max(1, Math.round((next - today) / 86400000));
   return {
-    key: `${y}_${String(m+1).padStart(2,'0')}_${startDay}`,
+    key: `${start.getFullYear()}_${String(start.getMonth()+1).padStart(2,'0')}_${String(start.getDate()).padStart(2,'0')}`,
     start, end, daysLeft,
     label: `${start.getMonth()+1}/${start.getDate()}〜${end.getMonth()+1}/${end.getDate()}`
   };
