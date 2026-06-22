@@ -351,6 +351,11 @@ function migrate(data) {
     if (mo.foodSpent === undefined) mo.foodSpent = 0;
     if (mo.foodByDay === undefined) mo.foodByDay = {};       // 日別食費（毎日リセット）
     if (mo.foodFinalized === undefined) mo.foodFinalized = {}; // 節約分を娯楽費に確定済みの日
+    // 食費の集計開始日（このサイクルで記録を始めた日）。既存データは最初の記録日を採用
+    if (mo.foodTrackedFrom === undefined) {
+      const evidence = [...Object.keys(mo.foodByDay), ...Object.keys(mo.foodFinalized)].sort();
+      mo.foodTrackedFrom = evidence.length ? evidence[0] : null;
+    }
   }
 }
 
@@ -364,6 +369,7 @@ function getMonth(data) {
       foodSpent: 0,
       foodByDay: {},
       foodFinalized: {},
+      foodTrackedFrom: todayKey(),
       entOverride: null,
       foodOverride: null,
       categories: { 交際費: 0, 交通費: 0, '娯楽・趣味': 0, 被服費: 0, '美容・健康': 0, その他: 0 },
@@ -394,23 +400,30 @@ function calcRemaining(data) {
   };
 }
 
-// 日付が変わった過去の日について、その日の食費の過不足を娯楽費に確定する
-// （¥2,500未満で済めば差額を娯楽費に加算、超過すればその分を娯楽費から減算）
+// 過ぎた日（昨日まで）の食費の過不足を娯楽費に確定する。
+// カレンダー上の全日を対象にするので「1円も使わなかった日」も ¥2,500 まるごと節約として加算される。
+// （¥2,500未満で済めば差額を加算、超過すればその分を減算）
 function finalizeFoodSavings(data) {
   const m = getMonth(data);
   const daily = data.settings.foodDailyBudget;
   const tk = todayKey();
   if (!m.foodByDay) m.foodByDay = {};
   if (!m.foodFinalized) m.foodFinalized = {};
+  const from = m.foodTrackedFrom || tk;   // 集計開始日（これより前は対象外＝アプリ利用前を加算しない）
   let net = 0, days = 0;
-  for (const day of Object.keys(m.foodByDay)) {
-    if (day < tk && !m.foodFinalized[day]) {
-      const diff = daily - m.foodByDay[day]; // プラス＝節約、マイナス＝超過
+  const cur = new Date(from + 'T00:00:00');
+  const today = new Date(tk + 'T00:00:00');
+  while (cur < today) {                    // from 〜 昨日 を1日ずつ
+    const dk = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+    if (!m.foodFinalized[dk]) {
+      const spent = m.foodByDay[dk] || 0;  // 記録がなければ 0円扱い
+      const diff = daily - spent;          // プラス＝節約、マイナス＝超過
       m.foodSavings = (m.foodSavings || 0) + diff;
-      m.foodFinalized[day] = true;
+      m.foodFinalized[dk] = true;
       net += diff;
       days++;
     }
+    cur.setDate(cur.getDate() + 1);
   }
   return { net, days };
 }
