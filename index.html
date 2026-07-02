@@ -431,7 +431,15 @@ function finalizeFoodSavings(data) {
 // ─────────────────────────────────────────
 // 自然言語パーサー
 // ─────────────────────────────────────────
+// 全角数字→半角、「5万」「1.5万円」→「50000」「15000円」に正規化
+function normalizeAmounts(text) {
+  let t = text.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  t = t.replace(/(\d+(?:\.\d+)?)\s*万/g, (_, n) => String(Math.round(parseFloat(n) * 10000)));
+  return t;
+}
+
 function parseMessage(text) {
+  text = normalizeAmounts(text);
   // 残額確認
   if (/残[額高]|残り|いくら|how much/i.test(text)) {
     return { type: 'status' };
@@ -440,11 +448,10 @@ function parseMessage(text) {
   if (/リセット|reset/i.test(text)) {
     return { type: 'reset_confirm' };
   }
-  // 食費（節約表現：「食費が700円浮いた」「食費を500円節約」）
-  const savingMatch = text.match(/食費[がはを]?(\d[\d,]*)[円￥]?\s*(浮い|節約|余っ|余り)/);
+  // 食費の節約表現（「食費が700円浮いた」等）→ 自動精算があるため記録せず案内を返す
+  const savingMatch = text.match(/食費[がはを]?[\d,]*[円￥]?\s*(浮い|節約|余っ|余り)/);
   if (savingMatch) {
-    const amt = parseInt(savingMatch[1].replace(/,/g,''));
-    return { type: 'food_saving', amount: amt, detail: '' };
+    return { type: 'food_saving' };
   }
   // 食費の支出（「今日の食費は1800円」「ランチ1200円」「コンビニで600円」）
   const isFoodWord = /食費|ランチ|昼食|夕食|朝食|朝ご飯|昼ご飯|晩ご飯|朝御飯|昼御飯|晩御飯|夜ご飯|夜御飯|夕飯|晩飯|ご飯|ごはん|外食|コンビニ|スーパー|弁当|カフェ|スタバ|コーヒー|レストラン|ディナー|マック|マクド|ラーメン|うどん|そば|寿司|定食|食堂/.test(text);
@@ -612,6 +619,9 @@ function processMsg(text) {
   const parsed = parseMessage(text);
   const data = loadData();
   const month = getMonth(data);
+  // 開きっぱなしで日をまたいだ場合もここで精算（冪等なので何度呼んでも安全）
+  const fin = finalizeFoodSavings(data);
+  if (fin.days > 0) { saveData(data); updateHeader(); }
 
   setTimeout(() => {
     if (parsed.type === 'status') {
@@ -640,12 +650,8 @@ function processMsg(text) {
       botMsg(`✅ <strong>食費</strong>に ${fmt(parsed.amount)} を記録しました！${overNote}${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'food_saving') {
-      month.foodSavings = (month.foodSavings || 0) + parsed.amount;
-      month.transactions.push({ date: new Date().toISOString(), type: 'saving', amount: parsed.amount, memo: text });
-      saveData(data);
       const calc = calcRemaining(data);
-      updateHeader();
-      botMsg(`✅ 食費の節約 ${fmt(parsed.amount)} を娯楽費に加算しました！${makeRemainingCard(calc, month.categories)}`);
+      botMsg(`食費の節約分は、日付が変わると<strong>自動で娯楽費に精算</strong>されます🎉<br><small style="color:#888">手動で加算すると二重計上になるので、記録は不要です。今日使った食費だけ入力してください（例：「夕食800円」）。</small>${makeRemainingCard(calc, month.categories)}`);
 
     } else if (parsed.type === 'income') {
       month.extraIncome = (month.extraIncome || 0) + parsed.amount;
@@ -660,7 +666,7 @@ function processMsg(text) {
 
     } else {
       // 金額が入っているかもしれない
-      const numMatch = text.match(/(\d[\d,]+)/);
+      const numMatch = normalizeAmounts(text).match(/(\d[\d,]+)/);
       if (numMatch) {
         const amt = parseInt(numMatch[1].replace(/,/g,''));
         const cat = detectCategory(text);
@@ -779,6 +785,23 @@ window.onload = () => {
     addMsg(`こんにちは！💰<br>娯楽費（期間）と食費（1日¥${data.settings.foodDailyBudget.toLocaleString()}・毎日リセット）で管理します。<br>話しかけるだけで記録できます！${makeRemainingCard(calc, month.categories)}`);
   }
 };
+
+// iPhoneのホーム画面アプリはリロードせずに復帰することが多いため、
+// フォアグラウンド復帰時にも日またぎの精算とヘッダー更新を行う
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const data = loadData();
+  const fin = finalizeFoodSavings(data);
+  if (fin.days > 0) {
+    saveData(data);
+    if (fin.net > 0) {
+      addMsg(`前日までの食費の節約分 ${fmt(fin.net)} を娯楽費に加算しました🎉`);
+    } else if (fin.net < 0) {
+      addMsg(`前日までの食費の超過分 ${fmt(-fin.net)} を娯楽費から差し引きました`);
+    }
+  }
+  updateHeader(); // 日付が変わっていれば「今日の食費」バーもリセット表示される
+});
 </script>
 </body>
 </html>
