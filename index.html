@@ -237,6 +237,8 @@
     <button class="quick-btn" onclick="quickInput('昼ごはん')">🍱 昼ごはん</button>
     <button class="quick-btn" onclick="quickInput('夕食')">🍽️ 夕食</button>
     <button class="quick-btn" onclick="quickInput('カフェ')">☕ カフェ</button>
+    <button class="quick-btn" onclick="quickInput('食品')">🛒 食品</button>
+    <button class="quick-btn" onclick="quickInput('自由枠')">➕ 自由枠</button>
     <button class="quick-btn" onclick="quickInput('飲み会で')">🍺 飲み会</button>
     <button class="quick-btn" onclick="quickInput('交通費で')">🚃 交通費</button>
     <button class="quick-btn" onclick="quickInput('臨時収入が')">💵 臨時収入</button>
@@ -453,8 +455,14 @@ function parseMessage(text) {
   if (savingMatch) {
     return { type: 'food_saving' };
   }
-  // 食費の支出（「今日の食費は1800円」「ランチ1200円」「コンビニで600円」）
-  const isFoodWord = /食費|ランチ|昼食|夕食|朝食|朝ご飯|昼ご飯|晩ご飯|朝御飯|昼御飯|晩御飯|夜ご飯|夜御飯|夕飯|晩飯|ご飯|ごはん|外食|コンビニ|スーパー|弁当|カフェ|スタバ|コーヒー|レストラン|ディナー|マック|マクド|ラーメン|うどん|そば|寿司|定食|食堂/.test(text);
+  // 自由枠（毎月の上振れ配分の「自由20%」を今期の娯楽費に上乗せ）
+  if (/自由枠|自由費/.test(text)) {
+    const m = text.match(/(\d[\d,]*)[円￥]?/);
+    if (m) return { type: 'free_allowance', amount: parseInt(m[1].replace(/,/g,'')) };
+    return { type: 'free_allowance_help' };
+  }
+  // 食費の支出（「今日の食費は1800円」「ランチ1200円」「コンビニで600円」「食品2000円」）
+  const isFoodWord = /食費|食品|食料品|食材|買い出し|ランチ|昼食|夕食|朝食|朝ご飯|昼ご飯|晩ご飯|朝御飯|昼御飯|晩御飯|夜ご飯|夜御飯|夕飯|晩飯|ご飯|ごはん|外食|コンビニ|スーパー|弁当|カフェ|スタバ|コーヒー|レストラン|ディナー|マック|マクド|ラーメン|うどん|そば|寿司|定食|食堂/.test(text);
   if (isFoodWord) {
     const m = text.match(/(\d[\d,]*)[円￥]?/);
     if (m) {
@@ -652,6 +660,17 @@ function processMsg(text) {
     } else if (parsed.type === 'food_saving') {
       const calc = calcRemaining(data);
       botMsg(`食費の節約分は、日付が変わると<strong>自動で娯楽費に精算</strong>されます🎉<br><small style="color:#888">手動で加算すると二重計上になるので、記録は不要です。今日使った食費だけ入力してください（例：「夕食800円」）。</small>${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'free_allowance') {
+      month.extraIncome = (month.extraIncome || 0) + parsed.amount;
+      month.transactions.push({ date: new Date().toISOString(), type: 'free_allowance', amount: parsed.amount, memo: text });
+      saveData(data);
+      const calc = calcRemaining(data);
+      updateHeader();
+      botMsg(`✅ 今期の自由枠 ${fmt(parsed.amount)} を娯楽費に上乗せしました！<br><small style="color:#888">給料日で新しい期間になったら、その月の自由枠を改めて入力してください。</small>${makeRemainingCard(calc, month.categories)}`);
+
+    } else if (parsed.type === 'free_allowance_help') {
+      botMsg(`自由枠の追加は「<strong>自由枠45000円</strong>」のように金額をつけて送ってください。<br><small style="color:#888">毎月の給与配分（上振れの自由20%）で決まった額を今期の娯楽費に上乗せできます。</small>`);
 
     } else if (parsed.type === 'income') {
       month.extraIncome = (month.extraIncome || 0) + parsed.amount;
